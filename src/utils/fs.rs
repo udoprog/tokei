@@ -22,6 +22,7 @@ pub fn get_all_files(paths: &[&str],
                      languages: &mut BTreeMap<LanguageType, Language>,
                      types: Option<Vec<LanguageType>>)
 {
+    let types = ::std::sync::Arc::new(types);
     let (tx, rx) = mpsc::channel();
 
     let mut paths = paths.iter();
@@ -41,8 +42,10 @@ pub fn get_all_files(paths: &[&str],
         walker.overrides(overrides.build().expect("Excludes provided were invalid"));
     }
 
+
     walker.build_parallel().run(move|| {
         let tx = tx.clone();
+        let types = types.clone();
         Box::new(move |entry| {
 
             let entry = match entry {
@@ -55,7 +58,20 @@ pub fn get_all_files(paths: &[&str],
 
             if let Ok(metadata) = entry.path().metadata() {
                 if metadata.is_file() {
-                    tx.send(entry).unwrap();
+                    if let Some(language) = LanguageType::from_path(entry.path()) {
+                        if (types.is_some() &&
+                            types.as_ref().as_ref().map(|t| t.contains(&language)).unwrap()) ||
+                            types.is_none()
+                            {
+                                let result = language.parse(entry)
+                                    .ok()
+                                    .and_then(|s| Some((language, s)));
+
+                                if let Some(result) = result {
+                                    tx.send(result).unwrap();
+                                }
+                            }
+                    }
                 }
             }
 
@@ -63,27 +79,7 @@ pub fn get_all_files(paths: &[&str],
         })
     });
 
-    let types: Option<&[LanguageType]> = types.as_ref().map(|v| &**v);
-
-    let iter: Vec<_> = rx.into_iter()
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .filter_map(|entry| {
-            if let Some(language) = LanguageType::from_path(entry.path()) {
-                if (types.is_some() &&
-                    types.map(|t| t.contains(&language)).unwrap()) ||
-                    types.is_none()
-                {
-                    return language.parse(entry)
-                        .ok()
-                        .and_then(|s| Some((language, s)))
-                }
-            }
-
-            None
-    }).collect();
-
-    for (language_type, stats) in iter {
+    for (language_type, stats) in rx {
         languages.entry(language_type)
             .or_insert_with(|| Language::new())
             .add_stat(stats);
