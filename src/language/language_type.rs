@@ -1,52 +1,47 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::path::Path;
-use std::fs::File;
-use std::io::{self, Read, BufRead, BufReader};
+use std::io;
 use std::str::FromStr;
 
-use utils::fs as fsutils;
 use self::LanguageType::*;
 use stats::Stats;
 
 use super::syntax::SyntaxCounter;
 use utils::bytes::{self, Bytes};
+use FileAccess;
 
 include!(concat!(env!("OUT_DIR"), "/language_type.rs"));
 
 impl LanguageType {
     /// Parses a given `Path` using the `LanguageType`. Returning `Stats`
-    pub fn parse(self, path: &Path) -> Result<Stats, io::Error> {
-        let text = read_to_vec(&path)?;
-        return self.parse_from_bytes(path, &text);
-
-        fn read_to_vec(path: &Path) -> Result<Vec<u8>, io::Error> {
-            let mut text = Vec::new();
-            let mut f = File::open(&path)?;
-            f.read_to_end(&mut text)?;
-            Ok(text)
-        }
+    pub fn parse<'a, F>(self, file_access: F) -> io::Result<Stats>
+        where F: FileAccess<'a>
+    {
+        let mut text = Vec::new();
+        file_access.read_to_end(&mut text)?;
+        self.parse_from_bytes(file_access.name(), &text)
     }
 
     /// Parses the text provided. Returning `Stats` on success.
-    pub fn parse_from_str(self, path: &Path, text: &str) -> Stats {
-        self.parse_from_bytes_checked(path, Bytes::new(text.as_bytes()))
+    pub fn parse_from_str<'a>(self, name: Cow<'a, str>, text: &str) -> Stats {
+        self.parse_from_bytes_checked(name, Bytes::new(text.as_bytes()))
     }
 
     /// Parses the text provided. Returning `Stats` on success.
-    pub fn parse_from_bytes(self, path: &Path, text: &[u8]) -> Result<Stats, io::Error> {
+    pub fn parse_from_bytes<'a>(self, name: Cow<'a, str>, text: &[u8]) -> Result<Stats, io::Error> {
         if bytes::is_binary(&text) {
             return Err(io::Error::new(io::ErrorKind::Other, "binary file"));
         }
 
         let text = bytes::decode(text).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        Ok(self.parse_from_bytes_checked(path, Bytes::new(&text)))
+        Ok(self.parse_from_bytes_checked(name, Bytes::new(&text)))
     }
 
     /// Parse from a known good (UTF-8) sequence of bytes.
-    fn parse_from_bytes_checked(self, path: &Path, text: Bytes) -> Stats {
+    fn parse_from_bytes_checked<'a>(self, name: Cow<'a, str>, text: Bytes) -> Stats {
         let lines = text.lines();
-        let mut stats = Stats::new(path.to_owned());
+        let mut stats = Stats::new(name.to_string());
 
         if self.is_blank() {
             let count = lines.count();
