@@ -60,8 +60,52 @@ pub trait FileAccess<'a>: Copy {
     fn name(self) -> Cow<'a, str>;
 
     /// Access the file name, if available.
-    fn file_name(self) -> Option<Cow<'a, str>>;
+    fn file_name(self) -> Option<Cow<'a, str>> {
+        let name = match self.name() {
+            Cow::Borrowed(n) => Cow::from(n.rsplit("/").next().unwrap_or_else(|| n)),
+            Cow::Owned(n) => Cow::from(n.rsplit("/").next().unwrap_or_else(|| &n).to_string()),
+        };
+
+        Some(name)
+    }
 
     /// Access the extension of the file, if available.
-    fn extension(self) -> Option<Cow<'a, str>>;
+    fn extension(self) -> Option<Cow<'a, str>> {
+        match self.file_name() {
+            Some(Cow::Borrowed(n)) => n.rsplit(".").next().map(Cow::from),
+            Some(Cow::Owned(n)) => n.rsplit(".").next().map(|s| s.to_string()).map(Cow::from),
+            None => None,
+        }
+    }
+
+    /// Rename the file access object.
+    fn with_name(self, name: &'a str) -> WithName<'a, Self> {
+        WithName {
+            name,
+            file_access: self,
+        }
+    }
+}
+
+/// Struct which causes a FileAccess object to be renamed.
+///
+/// Created using [`FileAccess::with_name`].
+#[derive(Clone, Copy)]
+pub struct WithName<'a, F> where F: FileAccess<'a> {
+    name: &'a str,
+    file_access: F,
+}
+
+impl<'a, F> FileAccess<'a> for WithName<'a, F> where F: FileAccess<'a> {
+    fn read_to_end(self, buf: &mut Vec<u8>) -> io::Result<()> {
+        self.file_access.read_to_end(buf)
+    }
+
+    fn read_first_line(self) -> io::Result<String> {
+        self.file_access.read_first_line()
+    }
+
+    fn name(self) -> Cow<'a, str> {
+        Cow::from(self.name)
+    }
 }
