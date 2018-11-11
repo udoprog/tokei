@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs::File;
 use std::io::{self, Read, BufRead, BufReader};
 use std::str::FromStr;
@@ -16,24 +16,9 @@ include!(concat!(env!("OUT_DIR"), "/language_type.rs"));
 
 impl LanguageType {
     /// Parses a given `Path` using the `LanguageType`. Returning `Stats`
-    /// on success and giving back ownership of PathBuf on error.
-    pub fn parse(self, path: PathBuf) -> Result<Stats, (io::Error, PathBuf)> {
-        // NB: text must be in scope, since we potentially borrow from it when decoding.
-        let text = match read_to_vec(&path) {
-            Ok(text) => text,
-            Err(e) => return Err((e, path)),
-        };
-
-        if bytes::is_binary(&text) {
-            return Err((io::Error::new(io::ErrorKind::Other, "binary file"), path));
-        }
-
-        let text = match bytes::decode(&text).map_err(|e| io::Error::new(io::ErrorKind::Other, e)) {
-            Ok(text) => text,
-            Err(e) => return Err((e, path)),
-        };
-
-        return Ok(self.parse_from_bytes_checked(path, Bytes::new(&text)));
+    pub fn parse(self, path: &Path) -> Result<Stats, io::Error> {
+        let text = read_to_vec(&path)?;
+        return self.parse_from_bytes(path, &text);
 
         fn read_to_vec(path: &Path) -> Result<Vec<u8>, io::Error> {
             let mut text = Vec::new();
@@ -44,12 +29,12 @@ impl LanguageType {
     }
 
     /// Parses the text provided. Returning `Stats` on success.
-    pub fn parse_from_str(self, path: PathBuf, text: &str) -> Stats {
+    pub fn parse_from_str(self, path: &Path, text: &str) -> Stats {
         self.parse_from_bytes_checked(path, Bytes::new(text.as_bytes()))
     }
 
     /// Parses the text provided. Returning `Stats` on success.
-    pub fn parse_from_bytes(self, path: PathBuf, text: &[u8]) -> Result<Stats, io::Error> {
+    pub fn parse_from_bytes(self, path: &Path, text: &[u8]) -> Result<Stats, io::Error> {
         if bytes::is_binary(&text) {
             return Err(io::Error::new(io::ErrorKind::Other, "binary file"));
         }
@@ -59,9 +44,9 @@ impl LanguageType {
     }
 
     /// Parse from a known good (UTF-8) sequence of bytes.
-    fn parse_from_bytes_checked(self, path: PathBuf, text: Bytes) -> Stats {
+    fn parse_from_bytes_checked(self, path: &Path, text: Bytes) -> Stats {
         let lines = text.lines();
-        let mut stats = Stats::new(path);
+        let mut stats = Stats::new(path.to_owned());
 
         if self.is_blank() {
             let count = lines.count();

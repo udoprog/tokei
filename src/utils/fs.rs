@@ -80,10 +80,10 @@ pub fn get_all_files(paths: &[&str],
                     types.map(|t| t.contains(&language)).unwrap()) ||
                     types.is_none()
                 {
-                    match language.parse(entry.into_path()) {
+                    match language.parse(entry.path()) {
                         Ok(s) => return Some((language, Some(s))),
-                        Err((e, path)) => {
-                            error!("{} reading {}", e.description(), path.display());
+                        Err(e) => {
+                            error!("{} reading {}", e.description(), entry.path().display());
                             return Some((language, None));
                         },
                     }
