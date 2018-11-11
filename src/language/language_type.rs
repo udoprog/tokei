@@ -14,13 +14,50 @@ use FileAccess;
 include!(concat!(env!("OUT_DIR"), "/language_type.rs"));
 
 impl LanguageType {
-    /// Parses a given `Path` using the `LanguageType`. Returning `Stats`
-    pub fn parse<'a, F>(self, file_access: F) -> io::Result<Stats>
+    /// Build a language type and statistics from the given file.
+    pub fn parse<'a, F>(
+        file_access: F,
+        types: Option<&[LanguageType]>,
+    ) -> io::Result<Option<(LanguageType, Stats)>>
         where F: FileAccess<'a>
     {
+        use std::io::Read;
+
+        let is_supported = |language: &LanguageType| {
+            types.map(|t| t.contains(language)).unwrap_or(true)
+        };
+
+        // language determined from metadata.
+        if let Some(language) = LanguageType::from_file_access(file_access) {
+            if !is_supported(&language) {
+                return Ok(None);
+            }
+
+            let mut text = Vec::new();
+            file_access.open()?.read_to_end(&mut text)?;
+            let stats = language.parse_from_bytes(file_access.name(), &text)?;
+            return Ok(Some((language, stats)));
+        }
+
+        // need to read a bit of content, read the first 8000 bytes to check if binary.
         let mut text = Vec::new();
-        file_access.read_to_end(&mut text)?;
-        self.parse_from_bytes(file_access.name(), &text)
+        let mut reader = file_access.open()?;
+        (&mut reader).take(8000).read_to_end(&mut text)?;
+
+        // ignore binary files.
+        if bytes::is_binary(&text) {
+            return Ok(None);
+        }
+
+        reader.read_to_end(&mut text)?;
+
+        if let Some(language) = LanguageType::from_content(&text) {
+            let text = bytes::decode(&text).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let stats = language.parse_from_bytes_checked(file_access.name(), Bytes::new(&text));
+            return Ok(Some((language, stats)));
+        }
+
+        Ok(None)
     }
 
     /// Parses the text provided. Returning `Stats` on success.

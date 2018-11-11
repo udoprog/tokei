@@ -328,6 +328,38 @@ impl LanguageType {
         Self::from_file_access(entry.as_ref())
     }
 
+    /// Construct a language type from a file extension.
+    pub fn from_extension(extension: &str) -> Option<Self> {
+        match extension {
+            {{~#each languages}}
+                {{~#if this.extensions}}
+                    {{~#each this.extensions}}
+                        "{{~this}}" {{~#unless @last}} | {{~/unless}}
+                    {{~/each}}
+                        => Some({{~@key}}),
+                {{~/if}}
+            {{~/each}}
+            extension => {
+                warn!("Unknown extension: {}", extension);
+                None
+            },
+        }
+    }
+
+    pub fn from_file_name(file_name: &str) -> Option<Self> {
+        match file_name {
+            {{~#each languages}}
+                {{~#if this.filenames}}
+                    {{~#each this.filenames}}
+                        "{{~this}}" {{~#unless @last}} | {{~/unless}}
+                    {{~/each}}
+                        => Some({{~@key}}),
+                {{~/if}}
+            {{~/each}}
+            _ => None
+        }
+    }
+
     /// Get language from a file path. May open and read the file.
     ///
     /// ```no_run
@@ -337,43 +369,24 @@ impl LanguageType {
     /// assert_eq!(rust, Some(LanguageType::Rust));
     /// ```
     pub fn from_file_access<'a, F: FileAccess<'a>>(entry: F) -> Option<Self> {
-        if let Some(filename) = entry.file_name() {
-            match &*filename {
-                {{~#each languages}}
-                    {{~#if this.filenames}}
-                        {{~#each this.filenames}}
-                            "{{~this}}" {{~#unless @last}} | {{~/unless}}
-                        {{~/each}}
-                            => return Some({{~@key}}),
-                    {{~/if}}
-                {{~/each}}
-                _ => ()
-            }
+        if let Some(language) = entry.file_name().and_then(|name| Self::from_file_name(&name)) {
+            return Some(language);
         }
 
-        let extension = entry.extension();
-        let filetype = extension.as_ref()
-            .map(|s| &**s)
-            .or_else(|| get_filetype_from_shebang(entry));
-
-        if let Some(extension) = filetype {
-            match extension {
-                {{~#each languages}}
-                    {{~#if this.extensions}}
-                        {{~#each this.extensions}}
-                            "{{~this}}" {{~#unless @last}} | {{~/unless}}
-                        {{~/each}}
-                            => Some({{~@key}}),
-                    {{~/if}}
-                {{~/each}}
-                extension => {
-                    warn!("Unknown extension: {}", extension);
-                    None
-                },
-            }
-        } else {
-            None
+        if let Some(language) = entry.extension().and_then(|ext| Self::from_extension(&ext)) {
+            return Some(language);
         }
+
+        None
+    }
+
+    /// Try to determine the language type from the content.
+    pub fn from_content(text: &[u8]) -> Option<Self> {
+        if let Some(language) = get_filetype_from_shebang(text).and_then(Self::from_extension) {
+            return Some(language);
+        }
+
+        None
     }
 }
 
@@ -415,13 +428,10 @@ impl<'a> From<&'a LanguageType> for Cow<'a, LanguageType> {
     }
 }
 
-
-/// This is for getting the file type from the first line of a file
-pub fn get_filetype_from_shebang<'a, F>(file: F) -> Option<&'static str>
-    where F: FileAccess<'a>
-{
-    let line = match file.read_first_line() {
-        Ok(line) => line,
+/// This is for getting the file extension from the first line of a file
+pub fn get_filetype_from_shebang(text: &[u8]) -> Option<&'static str> {
+    let line = match Bytes::new(text).lines().next() {
+        Some(line) => line.to_utf8_lossy(),
         _ => return None,
     };
 

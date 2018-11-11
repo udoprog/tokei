@@ -93,33 +93,19 @@ pub fn get_all_file_accesses<'a, I: 'a, F>(
         .collect::<Vec<_>>()
         .into_par_iter()
         .filter_map(|file_access| {
-            if let Some(language) = LanguageType::from_file_access(file_access) {
-                if (types.is_some() &&
-                    types.map(|t| t.contains(&language)).unwrap()) ||
-                    types.is_none()
-                {
-                    match language.parse(file_access) {
-                        Ok(s) => return Some((language, Some(s))),
-                        Err(e) => {
-                            error!("{} reading {}", e.description(), file_access.name());
-                            return Some((language, None));
-                        },
-                    }
+            match LanguageType::parse(file_access, types) {
+                Ok(out) => return out,
+                Err(e) => {
+                    error!("{} reading {}", e.description(), file_access.name());
+                    return None;
                 }
             }
-
-            None
         })
         .collect();
 
     for (language_type, stats) in iter {
         let entry = languages.entry(language_type).or_insert_with(Language::new);
-
-        if let Some(stats) = stats {
-            entry.add_stat(stats);
-        } else {
-            entry.mark_inaccurate();
-        }
+        entry.add_stat(stats);
     }
 }
 

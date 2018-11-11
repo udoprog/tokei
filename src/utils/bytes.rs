@@ -84,6 +84,11 @@ impl<'a> Bytes<'a> {
         self.bytes
     }
 
+    /// Convert into a lossy UTF-8 string.
+    pub fn to_utf8_lossy(self) -> Cow<'a, str> {
+        String::from_utf8_lossy(&self.bytes)
+    }
+
     /// Iterate over the bytes as chars.
     pub fn utf8_chars_lossy(self) -> Utf8CharsLossy {
         // NB: if core::lossy was available we could do this as a zero copy.

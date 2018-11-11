@@ -4,21 +4,10 @@ use std::path::Path;
 use std::borrow::Cow;
 
 impl<'a> FileAccess<'a> for &'a Path {
-    fn read_to_end(self, buf: &mut Vec<u8>) -> io::Result<()> {
-        use std::io::Read;
-        fs::File::open(self)?.read_to_end(buf)?;
-        Ok(())
-    }
+    type Reader = fs::File;
 
-    fn read_first_line(self) -> io::Result<String> {
-        use std::io::{BufReader, BufRead};
-
-        let file = fs::File::open(self)?;
-        let mut buf = BufReader::new(file);
-        let mut line = String::new();
-        let _ = buf.read_line(&mut line);
-
-        Ok(line)
+    fn open(self) -> io::Result<Self::Reader> {
+        fs::File::open(self)
     }
 
     fn name(self) -> Cow<'a, str> {
@@ -50,11 +39,10 @@ impl<'a> FileAccess<'a> for &'a Path {
 /// The name of the file is typically its path, but this might be logical in case it's part of an
 /// archive (tar, zip, ...).
 pub trait FileAccess<'a>: Copy {
-    /// Read the contents of the file into a string.
-    fn read_to_end(self, buf: &mut Vec<u8>) -> io::Result<()>;
+    type Reader: io::Read;
 
-    /// Read the first line of the file into a string.
-    fn read_first_line(self) -> io::Result<String>;
+    /// Open the type for reading.
+    fn open(self) -> io::Result<Self::Reader>;
 
     /// Get the name of the file object.
     fn name(self) -> Cow<'a, str>;
@@ -97,12 +85,10 @@ pub struct WithName<'a, F> where F: FileAccess<'a> {
 }
 
 impl<'a, F> FileAccess<'a> for WithName<'a, F> where F: FileAccess<'a> {
-    fn read_to_end(self, buf: &mut Vec<u8>) -> io::Result<()> {
-        self.file_access.read_to_end(buf)
-    }
+    type Reader = F::Reader;
 
-    fn read_first_line(self) -> io::Result<String> {
-        self.file_access.read_first_line()
+    fn open(self) -> io::Result<Self::Reader> {
+        self.file_access.open()
     }
 
     fn name(self) -> Cow<'a, str> {
